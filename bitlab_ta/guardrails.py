@@ -10,6 +10,9 @@ INJECTION_PATTERNS = [
 ]
 
 
+MAX_QUESTION_CHARS = 2000
+
+
 class GuardrailError(Exception):
     pass
 
@@ -18,6 +21,13 @@ def require(name: str, value: str) -> str:
     if not value or not value.strip():
         raise GuardrailError(f"{name} is required")
     return value.strip()
+
+
+def validate_question(text: str) -> str:
+    question = require("question", text)
+    if len(question) > MAX_QUESTION_CHARS:
+        raise GuardrailError("question is too long")
+    return question
 
 
 def looks_like_injection(untrusted_text: str) -> bool:

@@ -1,7 +1,7 @@
 import json
 
 from .config import Settings
-from .guardrails import looks_like_injection, within_limits
+from .guardrails import GuardrailError, looks_like_injection, validate_question, within_limits
 from .state import AgentState, Status
 from .tools.registry import ToolRegistry
 from .trace import Trace
@@ -28,6 +28,12 @@ class Agent:
         self.trace = trace
         trace.record("goal", question=question)
 
+        try:
+            validate_question(question)
+        except GuardrailError as error:
+            trace.record("guardrail", rule="invalid_question", error=str(error))
+            return _stop(state, trace, Status.FAILED, "invalid_question")
+
         if looks_like_injection(question):
             trace.record("guardrail", rule="prompt_injection_suspected")
 
@@ -48,13 +54,17 @@ class Agent:
             trace.record("llm_step", step=state.steps, tool_calls=len(response.tool_calls))
 
             if not response.tool_calls:
-                state.draft_answer = response.text
+                answer = response.text.strip()
+                if not answer:
+                    return _stop(state, trace, Status.FAILED, "empty_answer")
+                state.draft_answer = answer
                 return _stop(state, trace, Status.COMPLETED, "answer_ready")
 
             messages.append(_assistant_message(response))
             for call in response.tool_calls:
                 state.tool_calls += 1
                 result = self._safe_dispatch(call.name, call.arguments, trace)
+                state.context[call.name] = result
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call.id,
